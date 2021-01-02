@@ -1,18 +1,20 @@
 <template>
 	<div ref="container" @mousedown="drag" @mouseup="drop">
-    <slot></slot>	
+		<slot></slot>	
 	</div>
 </template>
 <script>
 export default {
 	data(){
 		return {
+			lastChild: 0,
 			dragging: null,
 			clone: null,
 			size: 0,
 			offset: null,
 			orderMap: {},
 			os: null,
+			before: [],
 		}
 	},
 	methods: {
@@ -48,13 +50,15 @@ export default {
 				moveDown = false
 			}
 			let MOrd = 0
+			const mapCopy = {}
+			Object.assign(mapCopy, this.orderMap)
 			Array.from(this.$refs.container.childNodes).forEach(e => {
 				if(e.nodeName != '#text' && e != this.clone && e.classList.contains('isClone')){
 					const ord = parseInt(e.style.order)
 					if(moveDown){
 						if(nOrd == -2 && ord > cOrd){
 							e.style.order = ord-1
-							this.orderMap[e.style.order] = this.orderMap[ord]
+							this.orderMap[e.style.order] = mapCopy[ord]
 							setTimeout(() => {
 								const clonePos = e.getBoundingClientRect()
 								this.orderMap[e.style.order].style.top = (clonePos.y-this.os.y)+'px'
@@ -64,7 +68,7 @@ export default {
 								MOrd = ord
 						}else if(ord > cOrd && ord <= nOrd){
 							e.style.order = ord-1
-							this.orderMap[e.style.order] = this.orderMap[ord]
+							this.orderMap[e.style.order] = mapCopy[ord]
 							setTimeout(() => {
 								const clonePos = e.getBoundingClientRect()
 								this.orderMap[e.style.order].style.top = (clonePos.y-this.os.y)+'px'
@@ -74,7 +78,7 @@ export default {
 					}else{
 						if(ord < cOrd && ord > nOrd){
 							e.style.order = ord + 1
-							this.orderMap[e.style.order] = this.orderMap[ord]
+							this.orderMap[e.style.order] = mapCopy[ord]
 							setTimeout(() => {
 								const clonePos = e.getBoundingClientRect()
 								this.orderMap[e.style.order].style.top = (clonePos.y-this.os.y)+'px'
@@ -130,32 +134,83 @@ export default {
 			s.left = (event.screenX-this.offset.x)+'px'
 			this.clone.style.order = this.getNewOrder(event)
 			this.orderMap[this.clone.style.order] = this.dragging
+		},
+		removeChildren(children){
+			const removed = []
+			this.$refs.container.getElementsByClassName('isClone').forEach(e => {
+				if(children.includes(this.orderMap[e.style.order])){
+					removed.push(parseInt(e.style.order))
+					delete this.orderMap[e.style.order]
+					this.$refs.container.removeChild(e)
+					this.lastChild--
+				}
+			})
+			const mapCopy = {}
+			Object.assign(mapCopy, this.orderMap)
+			removed.sort()
+			this.$refs.container.getElementsByClassName('isClone').forEach(e => {
+				const ord = parseInt(e.style.order)
+				let sizeDiff = 0
+				while(ord > removed[sizeDiff])
+					sizeDiff++
+				if(sizeDiff != 0){
+					e.style.order = ord-sizeDiff
+					this.orderMap[ord-sizeDiff] = mapCopy[ord]
+					setTimeout(() => {
+						const clonePos = e.getBoundingClientRect()
+						this.orderMap[e.style.order].style.top = (clonePos.y-this.os.y)+'px'
+						this.orderMap[e.style.order].style.left = (clonePos.x-this.os.x)+'px'
+					}, 50)
+				}
+			})
+			for(let i=0;i<removed.length;i++)
+				delete this.orderMap[removed.length+this.lastChild-i]
+		},
+		addChildren(children){
+			this.os = this.$refs.container.getBoundingClientRect()
+			children.forEach(e => {
+				if(e.nodeName != '#text'){
+					this.orderMap[this.lastChild] = e
+					e.style.cursor = 'pointer'
+					e.style.position = 'absolute'
+					e.style.opacity = '0'
+					e.style.transition = 'top .1s'
+					const bCRect = e.getBoundingClientRect()
+					const clone = document.createElement('div')
+					const size = bCRect.height+this.getVMargin(e)
+			  	clone.classList.add('isClone')
+					clone.style.opacity = 0;
+					clone.style.height = size+'px'
+					clone.style.order = this.lastChild++
+					this.$refs.container.appendChild(clone)
+					setTimeout(() => {
+						const clonePos = clone.getBoundingClientRect()
+						e.style.top = (clonePos.y-this.os.y)+'px'
+						e.style.left = (clonePos.x-this.os.x)+'px'
+						e.style.opacity = ''
+					}, 50)
+				}
+			})
 		}
 	},
 	mounted(){
-		let i = 0
-		this.os = this.$refs.container.getBoundingClientRect()
-		Array.from(this.$refs.container.childNodes).forEach(e => {
-			if(e.nodeName != '#text'){
-				this.orderMap[i] = e
-				e.style.cursor = 'pointer'
-				e.style.position = 'absolute'
-				e.style.transition = 'top .1s'
-				const bCRect = e.getBoundingClientRect()
-				const clone = document.createElement('div')
-				const size = bCRect.height+this.getVMargin(e)
-			  clone.classList.add('isClone')
-				clone.style.opacity = 0;
-				clone.style.height = size+'px'
-				clone.style.order = i++
-				this.$refs.container.appendChild(clone)
-				setTimeout(() => {
-					const clonePos = clone.getBoundingClientRect()
-					e.style.top = (clonePos.y-this.os.y)+'px'
-					e.style.left = (clonePos.x-this.os.x)+'px'
-				}, 50)
-			}
+		this.addChildren(this.$refs.container.childNodes)
+	},
+	beforeUpdate(){
+		this.before = Array.from(this.$refs.container.childNodes)
+	},
+	updated(){
+		const children = Array.from(this.$refs.container.childNodes)
+		const added = children.filter(e => {
+			if(!this.before.includes(e))
+				return true
 		})
+		const removed = this.before.filter(e => {
+			if(!children.includes(e))
+				return true
+		})
+		this.removeChildren(removed)
+		this.addChildren(added)
 	}
 }
 </script>
